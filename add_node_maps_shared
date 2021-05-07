@@ -1,0 +1,71 @@
+function wait_for_sync ()
+{
+while :
+do
+        sleep 1
+        admin=$(ssh "$PARTNER" lctl get_param -n "nodemap.${TENANT_NAME}.admin_nodemap" 2>/dev/null)
+        trusted=$(ssh "$PARTNER" lctl get_param -n "nodemap.${TENANT_NAME}.trusted_nodemap" 2>/dev/null)
+        [ "$admin" == "$ADMIN" ] && [ "$trusted" == "$TRUSTED" ] && break
+done
+}
+
+function check_project ()
+{
+  if [ -z "${RANGE[$i]}" ] ; then
+     echo "Range not defined for $i"
+     exit 1
+  fi
+  if [ -z "${DIR[$i]}" ] ; then
+     echo "Directory not defined for $i"
+     exit 1
+  fi
+  if [ -z "${EXT_UID[$i]}" ] ; then
+     echo "Uid not defined for $i"
+     exit 1
+  fi
+  if [ -z "${EXT_GID[$i]}" ] ; then
+     echo "Uid not defined for $i"
+     exit 1
+  fi
+}
+
+function create_nodemap () {
+  SSH_AUTH_SOCK=""
+  lctl nodemap_info "${TENANT_NAME}" > /dev/null   2>&1 
+  if [ $? -ne 0 ] ; then
+    lctl nodemap_add "${TENANT_NAME}"
+    lctl nodemap_add_range   --name "${TENANT_NAME}" --range "${TENANT_RANGE}"
+  fi
+  lctl nodemap_modify      --name "${TENANT_NAME}" --property deny_unknown  --value "$DENY"
+  lctl nodemap_modify      --name "${TENANT_NAME}" --property trusted --value "$TRUSTED"
+  lctl nodemap_modify      --name "${TENANT_NAME}" --property admin   --value "$ADMIN"
+  wait_for_sync
+  lctl nodemap_set_fileset --name "${TENANT_NAME}" --fileset "${TENANT_DIR}"
+  lctl set_param -P "nodemap.${TENANT_NAME}.fileset=${TENANT_DIR}"
+  echo "${EXT_U}" | grep -s " "
+  if [ $? -ne 0  ] ; then
+    lctl nodemap_modify      --name "${TENANT_NAME}" --property squash_uid --value "${EXT_U}"
+    lctl nodemap_add_idmap   --name "${TENANT_NAME}" --idtype uid --idmap "1000:${EXT_U}"
+  else
+    lctl nodemap_modify      --name "${TENANT_NAME}" --property squash_uid --value "65534"
+    # note lack of "" to do expansion
+    for i in ${EXT_U}
+    do
+      lctl nodemap_add_idmap   --name "${TENANT_NAME}" --idtype uid --idmap "$i"
+    done 
+  fi
+  echo "${EXT_G}" | grep -s " "
+  if [ $? -ne 0  ] ; then
+    lctl nodemap_modify      --name "${TENANT_NAME}" --property squash_gid --value "${EXT_G}"
+    lctl nodemap_add_idmap   --name "${TENANT_NAME}" --idtype gid --idmap "1000:${EXT_G}"
+  else
+    lctl nodemap_modify      --name "${TENANT_NAME}" --property squash_gid --value "65534"
+    # note lack of "" to do expansion
+    for i in ${EXT_G}
+    do
+      lctl nodemap_add_idmap   --name "${TENANT_NAME}" --idtype gid  --idmap "$i"
+    done
+  fi
+}
+
+. networks
